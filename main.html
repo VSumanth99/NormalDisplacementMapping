@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+
+<html>
+
+<body>
+
+<h1> 02561 - Computer Graphics - Project </h1>
+<h1> Normal and Displacement Mapping </h1>
+<h1> By Sumanth Varambally </h1>
+
+<h2> Introduction </h2>
+The objects that we draw using WebGL are rendered as polygons. Every object is rendered by subdividing triangles until the desired level of realism is achieved. <br>
+This results in a trade-off between a high number of polygons being used to capture detail, thereby increasing computations and resource utilisation<br>
+or a low number of polygons being used for higher performance, but losing detail. Most real life surfaces are not smooth, and have minor details that would<br>
+drastically increase the polygon count to capture. <br>
+<br>
+Normal and displacement maps enable capturing detail without increasing polygon count. They do so by 'faking' lighting - they subtely change the way the objects are lit<br>
+in order to display more detail about the objects being rendered than that captured by the geometry. While normal maps encode details of normal directions, displacement maps<br>
+encode 'heights' - displacements of the vertex positions along the normal.<br>
+<br>
+In this project, normal and displacement maps are explored to render a scene. The scene of a brick ball rendered using different techniques is compared to highlight the <br>
+visual differences offered by the different techniques.
+<br>
+
+<h2> Method </h2>
+A normal map is usually described as a bitmap image. It encodes changes in the normal of the geometry, which affect lighting changes. To calculate the Lambertian (diffuse) <br>
+lighting of a surface, the unit vector from the shading point to the light source is dotted with the unit vector normal to that surface, and the result is the intensity of the<br>
+light on that surface. Imagine a polygonal model of a sphere - you can only approximate the shape of the surface. By using a 3-channel bitmap textured across the model, more <br>
+detailed normal vector information can be encoded. Each channel in the bitmap corresponds to a spatial dimension (X, Y and Z). This adds much more detail to the surface of a model, <br>
+especially in conjunction with advanced lighting techniques. <br>
+<br>
+However, the normals in a normal map are specified in a co-ordinate space in which the z-axis points outwards. When applied to an object that is not oriented parallel to the xy plane<br>
+the lighting looks off. This can be corrected by rotating the normal in the normal map into a co-ordinate space in which the triangle normal is the z-axis. This rotation can be performed<br>
+as a quaternion rotation. <a href="http://people.compute.dtu.dk/jerf/papers/abstracts/onb.html">(Frisvad, 2012)</a> The formulation is represented as:<br><br>
+<img src="equation.PNG" alt="Rotation equation" width="700" height = "100">
+<br> <br>
+
+A displacement map is an image which describes the displacement of the object geometry along the direction of the normal. The pixel values store the height by which the vertex <br>
+normal is displaced along the direction of the normal. Given the pixel value normalized to lie in [0, 1], the equation for displacing the vertex position is given by: <br>
+<br>
+<img src="equation_2.gif" alt="Displacment equation" width="500" height = "20">
+<br>
+Here, the normal and the pixel value are vectors and * represents element-wise multiplication, with the R, G and B values of the pixel value representing the displacement along X, Y <br>
+and Z axes respectively. "Displacement Scale" and "Displacement Bias" are two parameters that affect the way the displacement is rendered. Their effects can be explored in the project. <br>
+
+<h2> Implementation </h2>
+The scene consists of a cubemap, as described in Worksheet 7. Phong shading has been implemented. <br>
+However, the water from the scene is covered by a quad, with a normal map applied to it. The water is made 100% reflective, with the light reflecting off the transformed normal. <br>
+The rotation of the normal is implemented in the GLSL shader as follows:<br>
+<br>
+<code>
+  vec3 rotate_to_normal(vec3 normal, vec3 v)<br>
+  {<br>
+    float a = 1.0/(1.0 + normal.z); <br>
+    float b = -normal.x*normal.y*a; <br>
+    return vec3(1.0 - normal.x*normal.x*a, b, -normal.x)*v.x + vec3(b, 1.0 - normal.y*normal.y*a, -normal.y)*v.y + normal*v.z;<br>
+  }<br>
+<br>
+</code>
+
+The scene can be navigated using a 'trackball', with movement restricted only around the X-axis. <br>
+The normal map used is shown below and the scene described can be seen <a href="WaterScene/main.html"> here </a> <br>
+<img src="WaterScene/textures/water.jpg" width="200" height="200">
+<br>
+Next, a sphere is rendered in the middle of the scene, with a brick texture applied to it. The texture is obtained from TextureHaven <a href="https://texturehaven.com/tex/?t=castle_brick_02_red"> (Link) </a>.<br>
+No normal mapping is applied. The scene can be seen  <a href="Plain/main.html"> here </a> <br>
+<br>
+Now, a normal map is applied to the sphere. It is loaded as a seperate texture and applied in the fragment shader. A uniform is used to determine which material is being rendered, and for the brick ball, <br>
+the normal is modified by the texture colour specified in the normal map. This is done by first calculating the texture co-ordinates for the normal map and rotating the normal at that point to the direction<br>
+specified in the normal map. The texture colour is obtained from the brick image as before, however the normal is updated, which is further used in lighting calculations.<br>
+<br>
+<code>
+  vec2 t;<br>
+  t.x = 1.0 - atan(v_Normal.z, v_Normal.x)/(2.0*M_PI); <br>
+  t.y = acos(v_Normal.y)/M_PI; <br>
+<br>
+  vec4 norm_color = 2.0*texture2D(normalMap, t)-1.0; <br>
+<br>
+  new_normal = normalize(rotate_to_normal(v_Normal.xyz, normalize(norm_color.xyz)));<br>
+<br>
+  texColor = texture2D(sphereTex, t);<br>
+  texColor.w = 1.0;<br>
+<br>
+</code>
+The scene can be seen <a href="NormalMapping/main.html"> here </a><br>
+<br>
+Next, displacement mapping is implemented on top of normal mapping. This is done in the vertex shader by augmenting the vertex positions by the displacement, which is calculated as described before.<br>
+The pixel value of the correct position is sampled from the displacement map and used in the equation previously described.<br>
+<br>
+<code>
+  vec2 t;<br>
+  t.x = 1.0 - atan(normal.z, normal.x)/(2.0*M_PI);<br>
+  t.y = acos(normal.y)/M_PI;<br>
+  vec4 norm = 2.0*texture2D(displacementMap, t)- 1.0;<br>
+  displacement =  normal * (norm * displacement_scale + displacement_bias);<br>
+  displacement.w = 0.0;<br>
+</code>
+<br>
+The final position of the vertex (and normal) is then set as:<br>
+<br>
+<code>
+  gl_Position = persp_mat * view_mat * model_mat * (v_Position+displacement);<br>
+</code>
+<br>
+
+The scene can be seen <a href="DisplacementMapping/main.html"> here</a>. The final scene also uses a texture for the water, along with a displacement map. The colour is a weighted average<br>
+of the reflection result and the colour of the texture. There are sliders to adjust the Displacement Scale and Displacement Bias.<br>
+<h2> Results </h2>
+The scene with just the water quad looks as follows:<br><br>
+<img src="waterscene.png" width="512" height="512">
+<br><br>
+The scene with the sphere and plain texture mapping is as follows:<br><br>
+<img src="plain.png" width="512" height = "512">
+<br><br>
+The scene with the sphere and normal mapping is as follows:<br><br>
+<img src="normalmapping.png" width="512" height = "512">
+<br><br>
+The scene with the sphere and normal and displacement mapping applied to the brick texture and water looks as follows:<br><br>
+<img src="displacementmapping.png" width="512" height = "512">
+<br><br>
+
+The scenes can be found here:<br>
+1. <a href="WaterScene/main.html"> Water Scene </a>  <br><br>
+2. <a href="Plain/main.html"> Plain Texture Mapping </a> <br><br>
+3. <a href="NormalMapping/main.html"> Normal Mapping </a><br><br>
+4. <a href="DisplacementMapping/main.html"> Displacement Mapping</a><br>
+
+
+<h2> Discussion </h2>
+As evidenced by the images, normal and displacement mappping increase the realism of the objects in the scene substantially without affecting the polygon count. <br>
+<br>
+While normal mapping influences the lighting of the object to increase detail, displacement mapping produces visible bumps on the surface of the sphere. This can be noticed by observing<br>
+the surface of the sphere along the 'edges'. Displacement Mapping causes distinct changes in the shape of the sphere. <br>
+<br>
+The Displacement Scale and Displacement Bias parameters affect the geometry of the object substantially. The Displacement Scale is used to increase or decrease the effect caused by displacement mapping <br>
+Increasing it would make the effects more obvious, but it would also cause distortions to the geometry. The Displacement Bias parameter can be used to correct this effect.<br>
+<br>
+While a very simple and primitive form of displacement mapping has been implemented here, more advanced techniques like Parallax Mapping are popular in modern games. <br>
+</body>
+
+</html>
